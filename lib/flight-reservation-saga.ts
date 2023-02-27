@@ -42,6 +42,14 @@ export class FlightReservationSagaStack extends cdk.Stack {
       message: sfn.TaskInput.fromText("Reservation succeeded"),
     });
     const succeeded = new sfn.Succeed(this, "Trip Reservation Successful!");
+    const notifyFailure = new tasks.SnsPublish(this, "NotifyFailure", {
+      topic: topic,
+      integrationPattern: sfn.IntegrationPattern.REQUEST_RESPONSE,
+      message: sfn.TaskInput.fromText("Reservation Failed"),
+    });
+    const failed = new sfn.Fail(this, "Trip Reservation Failed", {
+      error: "Failed",
+    });
 
     const createTripRecord = new tasks.DynamoPutItem(
       this,
@@ -73,8 +81,10 @@ export class FlightReservationSagaStack extends cdk.Stack {
         ),
       },
       updateExpression: "SET flightstatus = :valueref",
+      conditionExpression: "availability = :availibilityref",
       expressionAttributeValues: {
         ":valueref": tasks.DynamoAttributeValue.fromString("Reserved"),
+        ":availibilityref": tasks.DynamoAttributeValue.fromString("yes"),
       },
     });
 
@@ -87,8 +97,10 @@ export class FlightReservationSagaStack extends cdk.Stack {
         ),
       },
       updateExpression: "SET paymentstatus = :valueref",
+      conditionExpression: "balance >= :balanceref",
       expressionAttributeValues: {
         ":valueref": tasks.DynamoAttributeValue.fromString("Processed"),
+        ":balanceref": tasks.DynamoAttributeValue.fromNumber(0),
       },
     });
 
@@ -104,6 +116,46 @@ export class FlightReservationSagaStack extends cdk.Stack {
         ":valueref": tasks.DynamoAttributeValue.fromString("Confirmed"),
       },
     });
+
+    const revertFlightReservation = new tasks.DynamoUpdateItem(
+      this,
+      "Revert Flight Reservation",
+      {
+        table: table,
+        key: {
+          id: tasks.DynamoAttributeValue.fromString(
+            sfn.JsonPath.stringAt("$$.Execution.StartTime")
+          ),
+        },
+        updateExpression: "SET flightstatus = :valueref",
+        expressionAttributeValues: {
+          ":valueref": tasks.DynamoAttributeValue.fromString("Reverted"),
+        },
+      }
+    );
+    reserveFlight.addCatch(revertFlightReservation, {
+      errors: [Errors.ALL],
+    });
+
+    const refundPayment = new tasks.DynamoUpdateItem(this, "Refund Payment", {
+      table: table,
+      key: {
+        id: tasks.DynamoAttributeValue.fromString(
+          sfn.JsonPath.stringAt("$$.Execution.StartTime")
+        ),
+      },
+      updateExpression: "SET paymentstatus = :valueref",
+      expressionAttributeValues: {
+        ":valueref": tasks.DynamoAttributeValue.fromString("Refunded"),
+      },
+    });
+    processPayment.addCatch(refundPayment, {
+      errors: [Errors.ALL],
+    });
+
+    notifyFailure.next(failed);
+    revertFlightReservation.next(notifyFailure);
+    refundPayment.next(revertFlightReservation);
 
     //Step function definition
     const definition = sfn.Chain.start(createTripRecord)
