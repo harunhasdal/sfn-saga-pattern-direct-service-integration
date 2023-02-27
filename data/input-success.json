@@ -1,0 +1,6 @@
+{
+  "comment": "Example success input for Flight Reservation Saga Pattern",
+  "destination": "Tenerife",
+  "balance": "100",
+  "availability": "yes"
+}
