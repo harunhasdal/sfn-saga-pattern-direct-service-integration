@@ -5,6 +5,7 @@ import * as sfn from "aws-cdk-lib/aws-stepfunctions";
 import * as tasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as logs from "aws-cdk-lib/aws-logs";
 
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -13,6 +14,7 @@ import {
   LogLevel,
   StateMachineType,
 } from "aws-cdk-lib/aws-stepfunctions";
+import { RetentionDays } from "aws-cdk-lib/aws-logs";
 
 export class FlightReservationSagaStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -110,11 +112,23 @@ export class FlightReservationSagaStack extends cdk.Stack {
       .next(confirmFlight)
       .next(notifySuccess)
       .next(succeeded);
+
+    const logGroup = new logs.LogGroup(this, "StateMachineLogs", {
+      logGroupName: "reserve-trip-saga-logs",
+      retention: RetentionDays.ONE_WEEK,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
     let saga = new sfn.StateMachine(this, "StateMachine", {
       stateMachineName: "reserve-trip-saga",
       tracingEnabled: true,
+      logs: {
+        destination: logGroup,
+        includeExecutionData: true,
+        level: LogLevel.ALL,
+      },
       stateMachineType: StateMachineType.EXPRESS,
       definition,
     });
+    logGroup.grantWrite(saga);
   }
 }
