@@ -69,6 +69,9 @@ export class FlightReservationSagaStack extends cdk.Stack {
           availability: tasks.DynamoAttributeValue.fromString(
             sfn.JsonPath.stringAt("$.availability")
           ),
+          car_availability: tasks.DynamoAttributeValue.fromString(
+            sfn.JsonPath.stringAt("$.car_availability")
+          ),
         },
       }
     );
@@ -82,6 +85,21 @@ export class FlightReservationSagaStack extends cdk.Stack {
       },
       updateExpression: "SET flightstatus = :valueref",
       conditionExpression: "availability = :availibilityref",
+      expressionAttributeValues: {
+        ":valueref": tasks.DynamoAttributeValue.fromString("Reserved"),
+        ":availibilityref": tasks.DynamoAttributeValue.fromString("yes"),
+      },
+    });
+
+    const reserveCar = new tasks.DynamoUpdateItem(this, "Reserve Car Rental", {
+      table: table,
+      key: {
+        id: tasks.DynamoAttributeValue.fromString(
+          sfn.JsonPath.stringAt("$$.Execution.StartTime")
+        ),
+      },
+      updateExpression: "SET car_rental = :valueref",
+      conditionExpression: "car_availability = :availibilityref",
       expressionAttributeValues: {
         ":valueref": tasks.DynamoAttributeValue.fromString("Reserved"),
         ":availibilityref": tasks.DynamoAttributeValue.fromString("yes"),
@@ -137,6 +155,39 @@ export class FlightReservationSagaStack extends cdk.Stack {
       errors: [Errors.ALL],
     });
 
+    const confirmCar = new tasks.DynamoUpdateItem(this, "Confirm Car Rental", {
+      table: table,
+      key: {
+        id: tasks.DynamoAttributeValue.fromString(
+          sfn.JsonPath.stringAt("$$.Execution.StartTime")
+        ),
+      },
+      updateExpression: "SET car_rental = :valueref",
+      expressionAttributeValues: {
+        ":valueref": tasks.DynamoAttributeValue.fromString("Confirmed"),
+      },
+    });
+
+    const revertCarRental = new tasks.DynamoUpdateItem(
+      this,
+      "Revert Car Rental",
+      {
+        table: table,
+        key: {
+          id: tasks.DynamoAttributeValue.fromString(
+            sfn.JsonPath.stringAt("$$.Execution.StartTime")
+          ),
+        },
+        updateExpression: "SET car_rental = :valueref",
+        expressionAttributeValues: {
+          ":valueref": tasks.DynamoAttributeValue.fromString("Reverted"),
+        },
+      }
+    );
+    reserveCar.addCatch(revertCarRental, {
+      errors: [Errors.ALL],
+    });
+
     const refundPayment = new tasks.DynamoUpdateItem(this, "Refund Payment", {
       table: table,
       key: {
@@ -155,13 +206,16 @@ export class FlightReservationSagaStack extends cdk.Stack {
 
     notifyFailure.next(failed);
     revertFlightReservation.next(notifyFailure);
-    refundPayment.next(revertFlightReservation);
+    revertCarRental.next(revertFlightReservation);
+    refundPayment.next(revertCarRental);
 
     //Step function definition
     const definition = sfn.Chain.start(createTripRecord)
       .next(reserveFlight)
+      .next(reserveCar)
       .next(processPayment)
       .next(confirmFlight)
+      .next(confirmCar)
       .next(notifySuccess)
       .next(succeeded);
 

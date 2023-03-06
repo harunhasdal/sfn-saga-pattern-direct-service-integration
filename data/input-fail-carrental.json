@@ -1,0 +1,7 @@
+{
+  "comment": "Example failure input for Car Rental - Saga Pattern",
+  "destination": "London",
+  "balance": "100",
+  "availability": "yes",
+  "car_availability": "no"
+}

@@ -1,6 +1,7 @@
 {
-  "comment": "Example failure input for Flight Reservation Saga Pattern",
+  "comment": "Example failure input for Payment - Saga Pattern",
   "destination": "Rome",
   "balance": "-5",
-  "availability": "yes"
+  "availability": "yes",
+  "car_availability": "yes"
 }
